@@ -19,6 +19,8 @@ export const createProblemSchema = z.object({
   category: z.string().optional().default("AI & Agents"),
   status: z.enum(["ACTIVE", "EVALUATING", "CONCLUDED"]).optional().default("ACTIVE"),
   deadline: z.string().optional(),
+  rawStatement: z.string().min(20, "Statement must be at least 20 characters").optional(),
+  hackathonId: z.string().optional(),
   inputRequirements: z.array(z.string()).optional().default([]),
   outputRequirements: z.array(z.string()).optional().default([]),
   functionalRequirements: z.array(z.string()).optional().default([]),
@@ -38,6 +40,10 @@ export const createSubmissionSchema = z.object({
   branch: z.string().optional().default("main"),
   commitHash: z.string().optional(),
   language: z.string().optional(),
+  projectName: z.string().optional(),
+  projectDescription: z.string().optional(),
+  demoUrl: z.string().optional(),
+  docUrl: z.string().optional(),
 });
 
 export const createJudgeEvaluationSchema = z.object({

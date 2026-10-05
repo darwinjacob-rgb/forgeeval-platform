@@ -154,6 +154,10 @@ export default function App() {
           if (user) setCurrentUser(user);
           if (user?.role === 'PARTICIPANT') {
             handleNavigate('participant-dashboard');
+          } else if (user?.role === 'JUDGE') {
+            handleNavigate('judge-workspace');
+          } else if (user?.role === 'ADMIN' || user?.role === 'ORGANIZER') {
+            handleNavigate('dashboard');
           } else {
             handleNavigate('dashboard');
           }

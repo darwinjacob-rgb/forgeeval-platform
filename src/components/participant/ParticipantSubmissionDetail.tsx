@@ -31,6 +31,26 @@ export const ParticipantSubmissionDetail: React.FC<ParticipantSubmissionDetailPr
     loadSubmission();
   }, [submissionId]);
 
+  // Polling when ingestion is in progress
+  useEffect(() => {
+    if (
+      submission &&
+      (submission.ingestionStatus === 'PENDING' ||
+        submission.ingestionStatus === 'CLONING' ||
+        submission.ingestionStatus === 'INGESTING')
+    ) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await participantApi.getSubmissionById(submissionId);
+          setSubmission(res.submission);
+        } catch {
+          // ignore polling errors
+        }
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [submission?.ingestionStatus, submissionId]);
+
   async function loadSubmission() {
     setLoading(true);
     try {
@@ -66,6 +86,9 @@ export const ParticipantSubmissionDetail: React.FC<ParticipantSubmissionDetailPr
     );
   }
 
+  const ingestionStatus = submission.ingestionStatus || 'PENDING';
+  const repoMeta = submission.repoMetadata;
+
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
       {/* Back button */}
@@ -89,9 +112,34 @@ export const ParticipantSubmissionDetail: React.FC<ParticipantSubmissionDetailPr
             </h1>
           </div>
 
-          <span className="px-3 py-1 rounded-full text-xs font-mono tracking-wider uppercase bg-[#FF6A1A]/10 text-[#FF8A3D] border border-[#FF6A1A]/30 self-start sm:self-auto">
-            {submission.status}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Repository Status Badge */}
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-mono tracking-wider uppercase border flex items-center gap-1.5 ${
+                ingestionStatus === 'READY'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : ingestionStatus === 'FAILED'
+                  ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  ingestionStatus === 'READY'
+                    ? 'bg-emerald-400'
+                    : ingestionStatus === 'FAILED'
+                    ? 'bg-red-400'
+                    : 'bg-amber-400 animate-ping'
+                }`}
+              />
+              REPO: {ingestionStatus}
+            </span>
+
+            {/* Submission Status Badge */}
+            <span className="px-3 py-1 rounded-full text-xs font-mono tracking-wider uppercase bg-[#FF6A1A]/10 text-[#FF8A3D] border border-[#FF6A1A]/30">
+              SUBMITTED
+            </span>
+          </div>
         </div>
 
         {submission.projectDescription && (
@@ -100,16 +148,27 @@ export const ParticipantSubmissionDetail: React.FC<ParticipantSubmissionDetailPr
           </p>
         )}
 
+        {/* Repository Error Banner if failed */}
+        {ingestionStatus === 'FAILED' && submission.ingestionError && (
+          <div className="p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-red-400 text-xs font-mono flex items-start space-x-3">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Repository Ingestion Failed</div>
+              <p className="text-zinc-400 mt-1">{submission.ingestionError}</p>
+            </div>
+          </div>
+        )}
+
         {/* Links */}
         <div className="flex flex-wrap items-center gap-3 pt-3 text-xs font-mono">
           <a
-            href={submission.repositoryUrl}
+            href={submission.githubUrl || submission.repositoryUrl}
             target="_blank"
             rel="noreferrer"
             className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-black/40 border border-white/10 text-zinc-300 hover:text-white hover:border-[#FF6A1A]/50 transition-colors"
           >
             <GitBranch className="w-3.5 h-3.5 text-[#FF8A3D]" />
-            <span>Repository ({submission.branch || 'main'})</span>
+            <span>{(submission.githubUrl || submission.repositoryUrl || '').replace(/^https?:\/\//, '')} ({submission.branch || 'main'})</span>
             <ExternalLink className="w-3 h-3 text-zinc-500" />
           </a>
 
@@ -126,6 +185,34 @@ export const ParticipantSubmissionDetail: React.FC<ParticipantSubmissionDetailPr
             </a>
           )}
         </div>
+
+        {/* Real Ingested Repository Metadata strip */}
+        {ingestionStatus === 'READY' && repoMeta && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-white/[0.04] font-mono text-xs">
+            <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
+              <span className="text-[10px] text-zinc-500 uppercase block">Files</span>
+              <span className="text-sm font-bold text-white">{repoMeta.fileCount ?? 0}</span>
+            </div>
+            <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
+              <span className="text-[10px] text-zinc-500 uppercase block">README</span>
+              <span className="text-sm font-bold text-emerald-400">
+                {repoMeta.hasReadme ? 'Available' : 'None'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
+              <span className="text-[10px] text-zinc-500 uppercase block">Primary Language</span>
+              <span className="text-sm font-bold text-white truncate block">
+                {repoMeta.primaryLanguage || submission.language || 'Detected'}
+              </span>
+            </div>
+            <div className="p-3 rounded-xl bg-black/30 border border-white/[0.06]">
+              <span className="text-[10px] text-zinc-500 uppercase block">Framework</span>
+              <span className="text-sm font-bold text-[#FF8A3D] truncate block">
+                {repoMeta.frameworks?.length ? repoMeta.frameworks.join(', ') : 'Standard'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Visual Timeline Section */}

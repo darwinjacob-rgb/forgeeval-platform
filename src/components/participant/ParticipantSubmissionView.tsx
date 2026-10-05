@@ -170,7 +170,21 @@ export const ParticipantSubmissionView: React.FC<ParticipantSubmissionViewProps>
             </div>
             <div className="flex justify-between border-b border-white/[0.04] pb-2">
               <span className="text-zinc-500">Repository:</span>
-              <span className="text-zinc-300 truncate max-w-xs">{submittedData.repositoryUrl}</span>
+              <a
+                href={submittedData.githubUrl || submittedData.repositoryUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#FF8A3D] hover:underline truncate max-w-xs"
+              >
+                {(submittedData.githubUrl || submittedData.repositoryUrl || '').replace(/^https?:\/\//, '')}
+              </a>
+            </div>
+            <div className="flex justify-between border-b border-white/[0.04] pb-2">
+              <span className="text-zinc-500">Repository Status:</span>
+              <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                Analyzing / Preparing Repository
+              </span>
             </div>
             <div className="flex justify-between border-b border-white/[0.04] pb-2">
               <span className="text-zinc-500">Submitted:</span>
@@ -179,8 +193,8 @@ export const ParticipantSubmissionView: React.FC<ParticipantSubmissionViewProps>
               </span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-zinc-500">Status:</span>
-              <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest bg-[#FF6A1A]/10 text-[#FF8A3D] border border-[#FF6A1A]/30">
+              <span className="text-zinc-500">Submission Status:</span>
+              <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                 SUBMITTED
               </span>
             </div>

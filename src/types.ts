@@ -60,6 +60,27 @@ export interface Submission {
   submittedAt: string;
   commitHash: string;
   status: 'ANALYZED' | 'IN_REVIEW' | 'PENDING' | 'FAILED';
+  isReleased?: boolean;
+  githubUrl?: string;
+  repoOwner?: string;
+  repoName?: string;
+  ingestionStatus?: 'PENDING' | 'CLONING' | 'INGESTING' | 'READY' | 'FAILED';
+  ingestedAt?: string;
+  ingestionError?: string | null;
+  repoMetadata?: {
+    owner?: string;
+    repo?: string;
+    defaultBranch?: string;
+    sizeKb?: number;
+    fileCount?: number;
+    directoryCount?: number;
+    hasReadme?: boolean;
+    readmePath?: string | null;
+    packageManagers?: string[];
+    languages?: string[];
+    primaryLanguage?: string;
+    frameworks?: string[];
+  };
   overallScore: number;
   criteriaScores: {
     requirement: number;

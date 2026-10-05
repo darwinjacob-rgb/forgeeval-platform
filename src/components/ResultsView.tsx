@@ -9,10 +9,12 @@ import {
   FolderGit2, 
   Search,
   Eye,
-  Info
+  Info,
+  Send
 } from 'lucide-react';
 import { Submission, Problem } from '../types';
 import { Card, Badge, Button, Input, ProgressBar } from './CommonUI';
+import { submissionsApi } from '../services/api';
 
 interface ResultsViewProps {
   submissions: Submission[];
@@ -28,10 +30,31 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onNavigate
 }) => {
   const [selectedProblem, setSelectedProblem] = useState<string>('ALL');
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [releasedMap, setReleasedMap] = useState<Record<string, boolean>>({});
 
   const filtered = selectedProblem === 'ALL'
     ? submissions
     : submissions.filter(s => s.problemId === selectedProblem);
+
+  const isSubReleased = (sub: Submission) => {
+    if (releasedMap[sub.id] !== undefined) return releasedMap[sub.id];
+    return Boolean(sub.isReleased);
+  };
+
+  const handleTogglePublish = async (sub: Submission) => {
+    const current = isSubReleased(sub);
+    const nextState = !current;
+    setPublishingId(sub.id);
+    try {
+      await submissionsApi.releaseSubmission(sub.id, nextState);
+      setReleasedMap(prev => ({ ...prev, [sub.id]: nextState }));
+    } catch (err: any) {
+      alert(err.message || 'Failed to update result publish status');
+    } finally {
+      setPublishingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -51,6 +74,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          <Badge variant="orange">
+            {filtered.filter(isSubReleased).length} / {filtered.length} PUBLISHED
+          </Badge>
           <Button variant="secondary" size="sm" onClick={() => onNavigate('leaderboard')}>
             VIEW LEADERBOARD
           </Button>
@@ -91,9 +117,14 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-bold text-[#F5F5F2]">{sub.team}</span>
                     <Badge variant="neutral">{sub.language}</Badge>
+                    {isSubReleased(sub) ? (
+                      <Badge variant="success">● PUBLISHED</Badge>
+                    ) : (
+                      <Badge variant="neutral">○ UNPUBLISHED</Badge>
+                    )}
                   </div>
                   <div className="text-xs text-[#92979D] mt-1 line-clamp-1">{sub.problemTitle}</div>
                 </div>
@@ -164,19 +195,19 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             </div>
 
             {/* Action Bar */}
-            <div className="pt-4 mt-4 border-t border-[#1E2227] flex items-center justify-between">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  onSelectSubmission(sub.id);
-                  onNavigate('submission-detail');
-                }}
-              >
-                FULL DOSSIER
-              </Button>
+            <div className="pt-4 mt-4 border-t border-[#1E2227] flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    onSelectSubmission(sub.id);
+                    onNavigate('submission-detail');
+                  }}
+                >
+                  FULL DOSSIER
+                </Button>
 
-              <div className="flex gap-2">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -187,15 +218,29 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 >
                   REQ TRACE
                 </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <Button
-                  variant="primary"
+                  variant={isSubReleased(sub) ? "secondary" : "primary"}
+                  size="sm"
+                  icon={isSubReleased(sub) ? <CheckCircle2 className="w-4 h-4 text-[#45D483]" /> : <Send className="w-4 h-4" />}
+                  loading={publishingId === sub.id}
+                  onClick={() => handleTogglePublish(sub)}
+                  className={!isSubReleased(sub) ? "!bg-[#FF6A1A] hover:!bg-[#FF8A3D] !text-[#08090B] font-bold tracking-wider" : "font-mono text-xs"}
+                >
+                  {isSubReleased(sub) ? 'PUBLISHED (UNPUBLISH)' : 'PUBLISH RESULT'}
+                </Button>
+
+                <Button
+                  variant="secondary"
                   size="sm"
                   onClick={() => {
                     onSelectSubmission(sub.id);
                     onNavigate('judge-workspace');
                   }}
                 >
-                  JUDGE ENTRY
+                  JUDGE
                 </Button>
               </div>
             </div>

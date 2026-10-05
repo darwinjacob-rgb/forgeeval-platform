@@ -50,12 +50,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ mode, onNavigate, onSucc
     }
   };
 
-  const fillDemoCreds = (demoEmail: string, demoRole: 'PARTICIPANT' | 'JUDGE' | 'ADMIN') => {
-    setEmail(demoEmail);
-    setPassword('password123');
-    setRole(demoRole);
-  };
-
   return (
     <div className="min-h-screen bg-[#08090B] flex flex-col justify-center items-center p-4 relative font-sans">
       <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-40" />
@@ -101,19 +95,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ mode, onNavigate, onSucc
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
-
-                <div>
-                  <label className="text-xs font-mono text-zinc-400 block mb-1">Account Role</label>
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-black/40 border border-[#292D32] rounded-lg text-xs font-mono text-white focus:outline-none focus:border-[#FF6A1A]/50 transition-colors"
-                  >
-                    <option value="PARTICIPANT">Participant (Hackathon Builder)</option>
-                    <option value="JUDGE">Judge (Evaluator)</option>
-                    <option value="ADMIN">Admin / Organizer</option>
-                  </select>
-                </div>
               </>
             )}
 
@@ -162,36 +143,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ mode, onNavigate, onSucc
               </Button>
             </div>
           </form>
-
-          {/* Quick Demo Fill Buttons (Dev only) */}
-          <div className="mt-4 pt-3 border-t border-white/[0.04]">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block mb-1.5 text-center">
-              Quick Development Accounts
-            </span>
-            <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
-              <button
-                type="button"
-                onClick={() => fillDemoCreds('dev@forgeeval.com', 'PARTICIPANT')}
-                className="py-1 px-2 rounded bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 hover:text-white border border-white/5 transition-colors text-center"
-              >
-                Participant
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemoCreds('judge@forgeeval.com', 'JUDGE')}
-                className="py-1 px-2 rounded bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 hover:text-white border border-white/5 transition-colors text-center"
-              >
-                Judge
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemoCreds('admin@forgeeval.com', 'ADMIN')}
-                className="py-1 px-2 rounded bg-white/[0.03] hover:bg-white/[0.08] text-zinc-400 hover:text-white border border-white/5 transition-colors text-center"
-              >
-                Admin
-              </button>
-            </div>
-          </div>
 
           <div className="mt-6 pt-4 border-t border-[#1E2227] flex items-center justify-between text-xs font-mono">
             {mode === 'login' ? (

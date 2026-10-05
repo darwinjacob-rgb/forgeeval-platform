@@ -63,9 +63,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAnal
             <Button variant="ghost" size="sm" onClick={() => onNavigate('login')}>
               Sign In
             </Button>
-            <Button variant="primary" size="sm" onClick={() => onNavigate('dashboard')}>
-              Command Center
-            </Button>
           </div>
         </div>
       </header>
@@ -91,25 +88,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAnal
               Analyze hackathon codebases against complex problem specs across 8 distinct dimensions: 
               requirements, code quality, security vulnerabilities, runtime execution, unit coverage, and UI/UX.
             </p>
-
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <Button 
-                variant="primary" 
-                size="lg" 
-                icon={<ArrowRight className="w-4 h-4" />}
-                onClick={() => onNavigate('create-problem')}
-              >
-                CREATE EVALUATION
-              </Button>
-              <Button 
-                variant="secondary" 
-                size="lg" 
-                icon={<Play className="w-4 h-4 text-[#FF6A1A]" />}
-                onClick={() => onOpenAnalysis('sub-101')}
-              >
-                VIEW LIVE DEMO
-              </Button>
-            </div>
           </div>
 
           {/* Futuristic AI Evaluation Command Center Mockup */}
@@ -376,17 +354,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onOpenAnal
           <h2 className="text-3xl sm:text-5xl font-extrabold font-mono uppercase text-[#F5F5F2] mb-6">
             Ready to Run Evidence-Based Hackathons?
           </h2>
-          <p className="text-base text-[#92979D] max-w-xl mx-auto mb-8 font-mono">
+          <p className="text-base text-[#92979D] max-w-xl mx-auto font-mono">
             Empower organizers, engineers, and judges with automated code intelligence and verifiability.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-4">
-            <Button variant="primary" size="lg" onClick={() => onNavigate('dashboard')}>
-              ENTER COMMAND CENTER
-            </Button>
-            <Button variant="secondary" size="lg" onClick={() => onNavigate('submissions')}>
-              EXPLORE SUBMISSIONS
-            </Button>
-          </div>
         </div>
       </section>
 

@@ -129,19 +129,22 @@ export const SubmissionManagement: React.FC<SubmissionManagementProps> = ({
                 <th className="pb-3 uppercase">Team / Author</th>
                 <th className="pb-3 uppercase">Target Track</th>
                 <th className="pb-3 uppercase">Repository</th>
-                <th className="pb-3 uppercase">Language</th>
+                <th className="pb-3 uppercase">Language / Stack</th>
+                <th className="pb-3 uppercase">Repo Status</th>
+                <th className="pb-3 uppercase">Files</th>
                 <th className="pb-3 uppercase">Submitted At</th>
-                <th className="pb-3 uppercase">Status</th>
                 <th className="pb-3 uppercase">Score</th>
                 <th className="pb-3 uppercase text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1E2227]">
               {filtered.map((sub) => {
-                const statusBadge = 
-                  sub.status === 'ANALYZED' ? <Badge variant="success">ANALYZED</Badge> :
-                  sub.status === 'IN_REVIEW' ? <Badge variant="orange">IN REVIEW</Badge> :
-                  sub.status === 'FAILED' ? <Badge variant="danger">FAILED</Badge> :
+                const ingestionStatus = sub.ingestionStatus || (sub.status === 'ANALYZED' ? 'READY' : 'PENDING');
+                const ingestionBadge =
+                  ingestionStatus === 'READY' ? <Badge variant="success">READY</Badge> :
+                  ingestionStatus === 'CLONING' ? <Badge variant="orange">CLONING</Badge> :
+                  ingestionStatus === 'INGESTING' ? <Badge variant="orange">INGESTING</Badge> :
+                  ingestionStatus === 'FAILED' ? <Badge variant="danger">FAILED</Badge> :
                   <Badge variant="neutral">PENDING</Badge>;
 
                 return (
@@ -154,7 +157,7 @@ export const SubmissionManagement: React.FC<SubmissionManagementProps> = ({
                         </div>
                         <div>
                           <div className="font-bold text-[#F5F5F2]">{sub.team}</div>
-                          <div className="text-[10px] text-[#92979D]">{sub.commitHash}</div>
+                          <div className="text-[10px] text-[#92979D]">{sub.commitHash ? sub.commitHash.slice(0, 7) : sub.id.slice(0, 7)}</div>
                         </div>
                       </div>
                     </td>
@@ -167,29 +170,39 @@ export const SubmissionManagement: React.FC<SubmissionManagementProps> = ({
                     {/* Repository */}
                     <td className="py-3.5 pr-2 max-w-[180px]">
                       <a
-                        href={sub.repository}
+                        href={sub.githubUrl || sub.repository}
                         target="_blank"
                         rel="noreferrer"
                         className="text-[#FF8A3D] hover:underline flex items-center gap-1 truncate"
                       >
                         <FolderGit2 className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{sub.repository.replace('https://github.com/', '')}</span>
+                        <span className="truncate">{(sub.githubUrl || sub.repository).replace(/^https?:\/\/github\.com\//, '')}</span>
                       </a>
                     </td>
 
-                    {/* Language */}
+                    {/* Language / Stack */}
                     <td className="py-3.5 pr-2">
-                      <span className="text-[#92979D]">{sub.language}</span>
+                      <span className="text-[#92979D] text-xs">
+                        {sub.repoMetadata?.primaryLanguage || sub.language}
+                      </span>
+                    </td>
+
+                    {/* Ingestion Status */}
+                    <td className="py-3.5 pr-2">
+                      {ingestionBadge}
+                    </td>
+
+                    {/* Files / README */}
+                    <td className="py-3.5 pr-2 text-[#92979D] text-[11px]">
+                      <div>{sub.repoMetadata?.fileCount ? `${sub.repoMetadata.fileCount} files` : '—'}</div>
+                      {sub.repoMetadata?.hasReadme && (
+                        <div className="text-[9px] text-emerald-400">README: Yes</div>
+                      )}
                     </td>
 
                     {/* Submitted At */}
                     <td className="py-3.5 pr-2 text-[#92979D] text-[11px]">
                       {new Date(sub.submittedAt).toLocaleDateString()} {new Date(sub.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-3.5 pr-2">
-                      {statusBadge}
                     </td>
 
                     {/* Score */}

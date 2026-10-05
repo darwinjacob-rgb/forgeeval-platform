@@ -1,7 +1,8 @@
 import { Problem, Submission, Finding, RequirementItem, JudgeEvaluation } from '../types';
 import { INITIAL_PROBLEMS, INITIAL_SUBMISSIONS, INITIAL_REQUIREMENTS, INITIAL_FINDINGS } from '../mockData';
 
-const API_BASE_URL = 'http://localhost:5000/api/v1';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const defaultHeaders: Record<string, string> = {
@@ -152,6 +153,22 @@ export const participantApi = {
     return apiFetch<{ submission: any }>(`/participant/submissions/${id}`);
   },
 
+  getRepositoryStatus: async (id: string) => {
+    return apiFetch<{
+      submissionId: string;
+      repositoryUrl: string;
+      githubUrl: string;
+      repoOwner?: string;
+      repoName?: string;
+      branch?: string;
+      ingestionStatus: 'PENDING' | 'CLONING' | 'INGESTING' | 'READY' | 'FAILED';
+      ingestedAt?: string;
+      ingestionError?: string | null;
+      repoMetadata?: any;
+      status: string;
+    }>(`/participant/submissions/${id}/repository-status`);
+  },
+
   getResults: async () => {
     return apiFetch<{
       hasReleasedResults: boolean;
@@ -241,6 +258,81 @@ export const problemsApi = {
       body: JSON.stringify(data),
     });
   },
+
+  // Phase 1 — create with raw statement (will be analyzed separately)
+  createWithStatement: async (data: {
+    title: string;
+    description: string;
+    category?: string;
+    difficulty?: string;
+    rawStatement: string;
+    hackathonId?: string;
+  }) => {
+    return apiFetch<{ problem: any }>('/problems', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Phase 1 — run extraction on an existing problem
+  analyze: async (problemId: string, rawStatement?: string) => {
+    return apiFetch<{ requirements: any[]; count: number }>(
+      `/problems/${problemId}/analyze`,
+      {
+        method: 'POST',
+        body: JSON.stringify(rawStatement ? { rawStatement } : {}),
+      }
+    );
+  },
+
+  // Phase 1 — get structured requirements list
+  getRequirements: async (problemId: string) => {
+    return apiFetch<{ requirements: any[]; analysisStatus: string }>(
+      `/problems/${problemId}/requirements`
+    );
+  },
+
+  // Phase 1 — manually add one requirement
+  createRequirement: async (
+    problemId: string,
+    data: {
+      title: string;
+      description?: string;
+      category: string;
+      priority?: string;
+      keywords?: string[];
+      acceptanceCriteria?: string[];
+      weight?: number;
+    }
+  ) => {
+    return apiFetch<{ requirement: any }>(`/problems/${problemId}/requirements`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Phase 1 — update a requirement
+  updateRequirement: async (problemId: string, reqId: string, data: Partial<{
+    title: string;
+    description: string;
+    category: string;
+    priority: string;
+    keywords: string[];
+    acceptanceCriteria: string[];
+    weight: number;
+  }>) => {
+    return apiFetch<{ requirement: any }>(
+      `/problems/${problemId}/requirements/${reqId}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    );
+  },
+
+  // Phase 1 — delete a requirement
+  deleteRequirement: async (problemId: string, reqId: string) => {
+    return apiFetch(`/problems/${problemId}/requirements/${reqId}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // ====================================================
@@ -257,12 +349,19 @@ export const submissionsApi = {
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
         problemId: s.problemId,
         problemTitle: s.problem?.title || 'Real-Time Pipeline',
-        repository: s.repositoryUrl || 'https://github.com/forgeeval/aegisshield',
+        repository: s.githubUrl || s.repositoryUrl || 'https://github.com/forgeeval/aegisshield',
+        githubUrl: s.githubUrl || s.repositoryUrl,
+        repoOwner: s.repoOwner,
+        repoName: s.repoName,
+        ingestionStatus: s.ingestionStatus || 'READY',
+        ingestedAt: s.ingestedAt,
+        ingestionError: s.ingestionError,
+        repoMetadata: s.repoMetadata || undefined,
         branch: s.branch || 'main',
-        language: s.language || 'TypeScript / Rust',
+        language: s.language || (s.repoMetadata?.primaryLanguage) || 'TypeScript / Rust',
         submittedAt: new Date(s.createdAt).toISOString(),
-        commitHash: s.id.slice(0, 7),
-        status: s.status === 'ANALYZED' ? 'ANALYZED' : 'IN_REVIEW',
+        commitHash: s.commitHash || s.id.slice(0, 7),
+        status: s.status === 'ANALYZED' ? 'ANALYZED' : s.status === 'FAILED' ? 'FAILED' : 'IN_REVIEW',
         overallScore: s.overallScore || 90,
         criteriaScores: {
           requirement: s.scoreRequirement || 90,
@@ -273,20 +372,23 @@ export const submissionsApi = {
           uiUx: s.scoreUiUx || 88,
         },
         metrics: {
-          linesOfCode: s.linesOfCode || 4520,
+          linesOfCode: s.linesOfCode || (s.repoMetadata?.fileCount ? s.repoMetadata.fileCount * 45 : 4520),
           cyclomaticComplexity: s.cyclomaticComplexity || 12,
           testCoverage: s.testCoverage || 88,
           buildTimeSec: s.buildTimeSec || 14,
-          vulnerabilitiesCount: s._count?.securityFindings || 1,
+          vulnerabilitiesCount: s._count?.securityFindings || 0,
         },
-        frameworks: ['React', 'Express', 'Prisma', 'TailwindCSS'],
+        frameworks: Array.isArray(s.repoMetadata?.frameworks) && s.repoMetadata.frameworks.length > 0
+          ? s.repoMetadata.frameworks
+          : ['React', 'Express', 'Prisma', 'TailwindCSS'],
         dependencies: [],
-        readmePreview: s.projectDescription || s.problem?.description || '',
-        projectStructure: [],
+        readmePreview: s.readmeContent || s.projectDescription || s.problem?.description || '',
+        projectStructure: s.projectStructure || [],
         runtimeLogs: [],
         exitCode: 0,
         buildStatus: 'SUCCESS',
         executionTime: '42ms',
+        isReleased: s.isReleased ?? false,
       }));
     } catch (err) {
       console.warn('Backend unavailable, using INITIAL_SUBMISSIONS fallback:', err);
@@ -303,10 +405,33 @@ export const submissionsApi = {
     }
   },
 
+  getRepositoryStatus: async (id: string) => {
+    return apiFetch<{
+      submissionId: string;
+      repositoryUrl: string;
+      githubUrl: string;
+      repoOwner?: string;
+      repoName?: string;
+      branch?: string;
+      ingestionStatus: 'PENDING' | 'CLONING' | 'INGESTING' | 'READY' | 'FAILED';
+      ingestedAt?: string;
+      ingestionError?: string | null;
+      repoMetadata?: any;
+      status: string;
+    }>(`/submissions/${id}/repository-status`);
+  },
+
   create: async (data: any) => {
     return apiFetch('/submissions', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  releaseSubmission: async (id: string, isReleased: boolean = true) => {
+    return apiFetch<{ submissionId: string; isReleased: boolean }>(`/submissions/${id}/release`, {
+      method: 'POST',
+      body: JSON.stringify({ isReleased }),
     });
   },
 };
@@ -315,6 +440,159 @@ export const submissionsApi = {
 // EVALUATIONS & FINDINGS API
 // ====================================================
 export const evaluationApi = {
+  triggerEvaluation: async (submissionId: string) => {
+    return apiFetch<{ submissionId: string; status: string }>(`/evaluations/${submissionId}/evaluate`, { method: 'POST' });
+  },
+
+  getPipelineStatus: async (submissionId: string) => {
+    return apiFetch<{
+      submissionId: string;
+      ingestionStatus: string;
+      evaluationStatus: string;
+      pipeline: {
+        mappingStatus: string;
+        securityStatus: string;
+        runtimeStatus: string;
+        mappingError?: string | null;
+        securityError?: string | null;
+        runtimeError?: string | null;
+        startedAt?: string | null;
+        completedAt?: string | null;
+        mappingCompletedAt?: string | null;
+        securityCompletedAt?: string | null;
+        runtimeCompletedAt?: string | null;
+      } | null;
+      scores: { requirement: number | null; security: number | null; testing: number | null; overall: number | null };
+      counts: { securityFindings: number; runtimeTests: number; requirementResults: number };
+    }>(`/evaluations/${submissionId}/pipeline-status`);
+  },
+
+  getRequirementMapping: async (submissionId: string) => {
+    return apiFetch<{
+      submissionId: string;
+      scoreRequirement: number | null;
+      summary: { total: number; satisfied: number; partial: number; missing: number };
+      results: Array<{
+        resultId: string;
+        requirementId: string;
+        code: string;
+        title: string;
+        description: string;
+        category: string;
+        priority: string;
+        keywords: string[];
+        acceptanceCriteria: string[];
+        weight: number;
+        status: 'SATISFIED' | 'PARTIAL' | 'MISSING' | 'UNKNOWN';
+        confidence: number;
+        explanation: string;
+        filePath?: string | null;
+        evidence: string[];
+        matchedFiles: string[];
+      }>;
+    }>(`/evaluations/${submissionId}/requirement-mapping`);
+  },
+
+  getSecurityFindings: async (submissionId: string) => {
+    return apiFetch<{
+      submissionId: string;
+      scoreSecurity: number | null;
+      summary: { total: number; criticals: number; highs: number; mediums: number; lows: number };
+      findings: Array<{
+        id: string;
+        severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+        category: string;
+        title: string;
+        description: string;
+        filePath?: string;
+        lineNumber?: number;
+        columnNumber?: number;
+        codeSnippet?: string;
+        evidence: string;
+        recommendation: string;
+        cwe?: string;
+        ruleId?: string;
+        falsePositive: boolean;
+        status: 'OPEN' | 'CONFIRMED' | 'RESOLVED' | 'FALSE_POSITIVE' | 'MUTED';
+        createdAt: string;
+      }>;
+    }>(`/evaluations/${submissionId}/security-findings`);
+  },
+
+  updateFindingStatus: async (submissionId: string, findingId: string, data: { status?: string; falsePositive?: boolean }) => {
+    return apiFetch<{ finding: any }>(`/evaluations/${submissionId}/security-findings/${findingId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  getRuntimeResults: async (submissionId: string) => {
+    return apiFetch<{
+      submissionId: string;
+      scoreRuntime: number | null;
+      summary: { total: number; passed: number; failed: number; skipped: number };
+      tests: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        category: string;
+        status: 'PASSED' | 'FAILED' | 'SKIPPED' | 'ERROR';
+        duration?: number;
+        httpStatus?: number;
+        stdout?: string;
+        stderr?: string;
+        errorMessage?: string;
+        metadata?: any;
+        createdAt: string;
+      }>;
+    }>(`/evaluations/${submissionId}/runtime-results`);
+  },
+
+  getFinalResult: async (submissionId: string) => {
+    return apiFetch<{
+      finalResult: {
+        submissionId: string;
+        aiScore: number;
+        judgeScore?: number | null;
+        finalScore: number;
+        rank?: number | null;
+        status: string;
+        dimensionScores: Record<string, {
+          score: number;
+          weight: number;
+          weightedScore: number;
+          explanation: string;
+          evidence: string[];
+          isOverridden: boolean;
+          judgeScore?: number | null;
+        }>;
+        judgeOverrides?: Record<string, { overrideScore: number; comment?: string }>;
+        judgeComments?: string | null;
+        weightsUsed: Record<string, number>;
+        generatedAt: string;
+      };
+    }>(`/evaluations/${submissionId}/final-result`);
+  },
+
+  getScoringConfig: async (hackathonId?: string) => {
+    const q = hackathonId ? `?hackathonId=${hackathonId}` : '';
+    return apiFetch<{ weights: Record<string, number> }>(`/evaluations/scoring-config${q}`);
+  },
+
+  updateScoringConfig: async (weights: Record<string, number>, hackathonId?: string) => {
+    return apiFetch<{ weights: Record<string, number> }>(`/evaluations/scoring-config`, {
+      method: 'POST',
+      body: JSON.stringify({ weights, hackathonId }),
+    });
+  },
+
+  saveJudgeOverride: async (submissionId: string, dimension: string, score: number, comment?: string) => {
+    return apiFetch<{ result: any }>(`/evaluations/${submissionId}/judge-override`, {
+      method: 'POST',
+      body: JSON.stringify({ dimension, score, comment }),
+    });
+  },
+
   triggerReevaluate: async (id: string) => {
     return apiFetch(`/evaluations/${id}/re-evaluate`, { method: 'POST' });
   },

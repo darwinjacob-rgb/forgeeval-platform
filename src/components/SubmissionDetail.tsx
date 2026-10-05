@@ -47,8 +47,13 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold font-mono text-[#F5F5F2] uppercase">
                 {submission.team}
               </h1>
-              <Badge variant={submission.status === 'ANALYZED' ? 'success' : 'orange'}>
-                {submission.status}
+              <Badge variant={
+                submission.ingestionStatus === 'READY' ? 'success' :
+                submission.ingestionStatus === 'FAILED' ? 'danger' :
+                submission.ingestionStatus === 'CLONING' || submission.ingestionStatus === 'INGESTING' ? 'orange' :
+                submission.status === 'ANALYZED' ? 'success' : 'orange'
+              }>
+                {submission.ingestionStatus ? `REPO: ${submission.ingestionStatus}` : submission.status}
               </Badge>
             </div>
             <p className="text-xs font-mono text-[#92979D]">
@@ -59,7 +64,7 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
 
         <div className="flex items-center gap-3">
           <a
-            href={submission.repository}
+            href={submission.githubUrl || submission.repository}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#181B1F] text-[#F5F5F2] border border-[#292D32] hover:border-[#FF6A1A]/40 text-xs font-mono transition-colors"
@@ -78,6 +83,75 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
             RUN AI ANALYSIS
           </Button>
         </div>
+      </div>
+
+      {/* Repository Ingestion Specification (Phase 1B) */}
+      <div className="bg-[#111316] border border-[#292D32] p-4 rounded-xl font-mono text-xs space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-[#FF6A1A]/10 border border-[#FF6A1A]/30 flex items-center justify-center shrink-0">
+              <FolderGit2 className="w-5 h-5 text-[#FF6A1A]" />
+            </div>
+            <div>
+              <span className="text-[10px] text-[#92979D] uppercase block">GitHub Repository</span>
+              <a
+                href={submission.githubUrl || submission.repository}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#FF8A3D] font-bold hover:underline flex items-center gap-1.5"
+              >
+                <span>{(submission.githubUrl || submission.repository).replace(/^https?:\/\//, '')}</span>
+                <ExternalLink className="w-3 h-3 text-[#92979D]" />
+              </a>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <span className="text-[10px] text-[#92979D] uppercase block mb-1">Repository Status</span>
+              <Badge variant={
+                submission.ingestionStatus === 'READY' ? 'success' :
+                submission.ingestionStatus === 'FAILED' ? 'danger' :
+                submission.ingestionStatus === 'CLONING' || submission.ingestionStatus === 'INGESTING' ? 'orange' :
+                'neutral'
+              }>
+                {submission.ingestionStatus || 'READY'}
+              </Badge>
+            </div>
+            <div>
+              <span className="text-[10px] text-[#92979D] uppercase block mb-1">Files</span>
+              <span className="text-[#F5F5F2] font-bold">
+                {submission.repoMetadata?.fileCount !== undefined
+                  ? submission.repoMetadata.fileCount
+                  : submission.metrics?.linesOfCode ? Math.round(submission.metrics.linesOfCode / 40) : 127}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-[#92979D] uppercase block mb-1">README</span>
+              <span className={submission.repoMetadata?.hasReadme !== false ? "text-emerald-400 font-bold" : "text-[#92979D]"}>
+                {submission.repoMetadata?.hasReadme !== false ? 'Available' : 'None detected'}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-[#92979D] uppercase block mb-1">Repository Stack</span>
+              <span className="text-[#FF8A3D] font-bold truncate max-w-[180px] block">
+                {submission.repoMetadata?.frameworks?.length
+                  ? submission.repoMetadata.frameworks.join(' + ')
+                  : submission.frameworks?.join(' + ') || submission.language}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {submission.ingestionStatus === 'FAILED' && submission.ingestionError && (
+          <div className="p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">Ingestion Error: </span>
+              <span>{submission.ingestionError}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Primary KPI Strip */}
@@ -254,9 +328,15 @@ export const SubmissionDetail: React.FC<SubmissionDetailProps> = ({
       {/* Tab 3: README */}
       {activeTab === 'readme' && (
         <Card title="README.md File Preview">
-          <pre className="p-4 bg-[#08090B] border border-[#292D32] rounded-lg font-mono text-xs text-[#F5F5F2] overflow-x-auto whitespace-pre-wrap leading-relaxed">
-            {submission.readmePreview}
-          </pre>
+          {submission.readmePreview ? (
+            <pre className="p-4 bg-[#08090B] border border-[#292D32] rounded-lg font-mono text-xs text-[#F5F5F2] overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-[500px]">
+              {submission.readmePreview}
+            </pre>
+          ) : (
+            <div className="p-8 text-center text-xs font-mono text-[#92979D] bg-[#08090B] border border-[#292D32] rounded-lg">
+              No README file was detected during repository ingestion.
+            </div>
+          )}
         </Card>
       )}
 

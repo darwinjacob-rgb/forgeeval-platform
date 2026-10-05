@@ -2,9 +2,7 @@ import { Request, Response } from "express";
 import prisma from "../config/database.ts";
 import { sendSuccess, AppError } from "../utils/response.ts";
 import { createSubmissionSchema } from "../validators/index.ts";
-import { SecurityService } from "../services/security.service.ts";
-import { RuntimeService } from "../services/runtime.service.ts";
-import { AIEvaluationService } from "../services/aiEvaluation.service.ts";
+import { GitHubIngestionService } from "../services/githubIngestion.service.ts";
 
 /**
  * Get all submissions with filtering, sorting, and pagination
@@ -18,6 +16,15 @@ export async function getSubmissions(req: Request, res: Response) {
   const where: any = {};
   if (problemId && typeof problemId === "string") where.problemId = problemId;
   if (status && status !== "all" && typeof status === "string") where.status = status as any;
+
+  // Participant role restriction (IDOR protection)
+  if (req.user?.role === "PARTICIPANT") {
+    where.team = {
+      members: {
+        some: { userId: req.user.id },
+      },
+    };
+  }
 
   let orderBy: any = { createdAt: "desc" };
   if (sortBy === "scoreOverall") orderBy = { overallScore: "desc" };
@@ -70,14 +77,70 @@ export async function getSubmissionById(req: Request, res: Response) {
     throw new AppError("Submission not found", 404);
   }
 
+  // IDOR protection: if user is PARTICIPANT, verify they belong to this submission's team
+  if (req.user?.role === "PARTICIPANT") {
+    const isMember = submission.team.members.some((m) => m.userId === req.user?.id);
+    if (!isMember) {
+      throw new AppError("Access denied: You do not have permission to view another team's submission.", 403);
+    }
+  }
+
   return sendSuccess(res, { submission });
 }
 
 /**
- * Create a new submission & trigger evaluation pipeline
+ * Get repository ingestion status for a submission
+ */
+export async function getRepositoryStatus(req: Request, res: Response) {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  const submission = await prisma.submission.findUnique({
+    where: { id },
+    include: {
+      team: { include: { members: { select: { userId: true } } } },
+    },
+  });
+
+  if (!submission) {
+    throw new AppError("Submission not found", 404);
+  }
+
+  if (req.user?.role === "PARTICIPANT") {
+    const isMember = submission.team.members.some((m) => m.userId === req.user?.id);
+    if (!isMember) {
+      throw new AppError("Access denied: You do not have permission to view this submission.", 403);
+    }
+  }
+
+  return sendSuccess(res, {
+    submissionId: submission.id,
+    repositoryUrl: submission.repositoryUrl,
+    githubUrl: submission.githubUrl || submission.repositoryUrl,
+    repoOwner: submission.repoOwner,
+    repoName: submission.repoName,
+    branch: submission.branch,
+    ingestionStatus: submission.ingestionStatus,
+    ingestedAt: submission.ingestedAt,
+    ingestionError: submission.ingestionError,
+    repoMetadata: submission.repoMetadata,
+    status: submission.status,
+  });
+}
+
+/**
+ * Create a new submission & trigger repository ingestion
  */
 export async function createSubmission(req: Request, res: Response) {
   const validated = createSubmissionSchema.parse(req.body);
+
+  // Validate GitHub URL
+  const urlValidation = GitHubIngestionService.validateAndParseGitHubUrl(validated.repositoryUrl);
+  if (!urlValidation.valid || !urlValidation.normalizedUrl) {
+    throw new AppError(
+      urlValidation.error || "Please provide a valid public GitHub repository URL (e.g., https://github.com/owner/repo)",
+      400
+    );
+  }
 
   // Verify problem exists
   const problem = await prisma.problem.findUnique({
@@ -89,122 +152,71 @@ export async function createSubmission(req: Request, res: Response) {
     throw new AppError("Target problem statement not found", 404);
   }
 
-  // Find or create default team
-  let team = await prisma.team.findFirst();
-  if (!team) {
-    const hackathon = await prisma.hackathon.create({
-      data: {
-        name: "ForgeEval Master Hackathon 2026",
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        status: "ACTIVE",
-      },
-    });
-    team = await prisma.team.create({
-      data: {
-        name: "CyberPulse Team",
-        hackathonId: hackathon.id,
-      },
-    });
+  // Find or create default team if teamId not provided
+  let teamId = validated.teamId;
+  if (!teamId) {
+    let team = await prisma.team.findFirst();
+    if (!team) {
+      const hackathon = await prisma.hackathon.create({
+        data: {
+          name: "ForgeEval Master Hackathon 2026",
+          startDate: new Date(),
+          endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: "ACTIVE",
+        },
+      });
+      team = await prisma.team.create({
+        data: {
+          name: "CyberPulse Team",
+          hackathonId: hackathon.id,
+        },
+      });
+    }
+    teamId = team.id;
   }
 
-  // 1. Create initial submission in DB
+  // 1. Create initial submission in DB with PENDING ingestion status
   const submission = await prisma.submission.create({
     data: {
-      teamId: team.id,
+      teamId,
       problemId: validated.problemId,
-      repositoryUrl: validated.repositoryUrl,
+      projectName: validated.projectName || "Hackathon Project",
+      projectDescription: validated.projectDescription || null,
+      repositoryUrl: urlValidation.normalizedUrl,
+      githubUrl: urlValidation.normalizedUrl,
+      repoOwner: urlValidation.owner,
+      repoName: urlValidation.repo,
       branch: validated.branch || "main",
-      status: "ANALYZING",
+      demoUrl: validated.demoUrl || null,
+      docUrl: validated.docUrl || null,
+      status: "PENDING",
+      ingestionStatus: "PENDING",
+    },
+    include: {
+      problem: true,
+      team: true,
     },
   });
 
-  // 2. Run automated analysis engines
-  try {
-    const [securityRes, runtimeRes, aiRes] = await Promise.all([
-      SecurityService.analyzeSubmission(submission.id, validated.repositoryUrl),
-      RuntimeService.runRuntimeTests(submission.id, undefined, validated.repositoryUrl),
-      AIEvaluationService.evaluateSubmission(
-        problem.title,
-        problem.description,
-        problem.requirements,
-        validated.repositoryUrl
-      ),
-    ]);
+  // 2. Trigger repository ingestion asynchronously (fire-and-forget)
+  setImmediate(async () => {
+    try {
+      await GitHubIngestionService.ingestRepository(
+        submission.id,
+        urlValidation.normalizedUrl!,
+        validated.branch || "main"
+      );
+    } catch (err) {
+      console.error("[Submission Controller] Background ingestion error:", err);
+    }
+  });
 
-    const scoreOverall = Math.round(
-      aiRes.scoreAI * 0.4 + securityRes.scoreSecurity * 0.3 + runtimeRes.scoreRuntime * 0.3
-    );
-
-    // Update submission with evaluation results
-    const updatedSubmission = await prisma.$transaction(async (tx) => {
-      // Create security findings
-      if (securityRes.findings.length > 0) {
-        await tx.securityFinding.createMany({
-          data: securityRes.findings.map((f) => ({
-            submissionId: submission.id,
-            title: f.title,
-            severity: f.severity === "CRITICAL" ? "CRITICAL" : f.severity === "HIGH" ? "HIGH" : f.severity === "MEDIUM" ? "MEDIUM" : "LOW",
-            category: "SECURITY",
-            filePath: f.location,
-            description: f.description,
-            recommendation: f.recommendation,
-            status: "OPEN",
-          })),
-        });
-      }
-
-      // Create runtime test results
-      if (runtimeRes.testSuiteResults.length > 0) {
-        await tx.runtimeTest.createMany({
-          data: runtimeRes.testSuiteResults.map((t) => ({
-            submissionId: submission.id,
-            name: t.name,
-            status: t.status === "PASSED" ? "PASSED" : "FAILED",
-            duration: t.durationMs,
-          })),
-        });
-      }
-
-      // Update main submission scores & status
-      return tx.submission.update({
-        where: { id: submission.id },
-        data: {
-          overallScore: scoreOverall,
-          scoreSecurity: securityRes.scoreSecurity,
-          scoreTesting: runtimeRes.scoreRuntime,
-          scoreRequirement: aiRes.scoreRequirements,
-          scoreCodeQuality: aiRes.scoreCodeQuality,
-          status: "ANALYZED",
-        },
-        include: {
-          problem: true,
-          securityFindings: true,
-          runtimeTests: true,
-        },
-      });
-    });
-
-    return sendSuccess(
-      res,
-      { submission: updatedSubmission },
-      "Submission created and analyzed successfully",
-      201
-    );
-  } catch (error) {
-    // Fallback if analysis engine throws error
-    const fallbackSub = await prisma.submission.update({
-      where: { id: submission.id },
-      data: { status: "PENDING" },
-    });
-
-    return sendSuccess(
-      res,
-      { submission: fallbackSub },
-      "Submission received and queued for evaluation",
-      201
-    );
-  }
+  return sendSuccess(
+    res,
+    { submission },
+    "Submission received and repository queued for ingestion",
+    201
+  );
 }
 
 /**
