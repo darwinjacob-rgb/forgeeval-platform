@@ -39,6 +39,17 @@ react(),
           '**/.figma/**',
 ],
       },
+      // Proxy API requests through Vite so the browser treats them as
+      // same-site — this lets the HttpOnly `lax` cookie be sent on
+      // cross-origin POST requests (e.g. Join Hackathon) without having
+      // to change SameSite to "none" or weaken cookie security.
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
     preview: {
       host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',

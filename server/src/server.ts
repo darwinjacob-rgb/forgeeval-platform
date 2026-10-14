@@ -8,7 +8,7 @@ async function main() {
     await prisma.$connect();
     console.log(" Connected to PostgreSQL database successfully via Prisma");
 
-    const server = app.listen(config.port, () => {
+    const server = app.listen(config.port, "0.0.0.0", () => {
       console.log(` ForgeEval Backend Server running on port ${config.port} (${config.nodeEnv})`);
       console.log(` Health check: http://localhost:${config.port}/health`);
       console.log(` API Base URL: http://localhost:${config.port}/api/v1`);

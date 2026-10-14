@@ -1,30 +1,28 @@
+/**
+ * ForgeEval — Prisma Seed Script (Idempotent)
+ *
+ * Safe to run multiple times — uses upsert / find-or-create on every model.
+ * NEVER deletes or resets existing database data.
+ *
+ * Run from the `server` directory:
+ *   npm run db:seed
+ */
+
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Starting ForgeEval V2 database seeding...");
+  console.log("🌱  Starting ForgeEval idempotent seed...");
 
-  // Clean existing tables
-  await prisma.judgeScore.deleteMany();
-  await prisma.requirementResult.deleteMany();
-  await prisma.runtimeTest.deleteMany();
-  await prisma.securityFinding.deleteMany();
-  await prisma.submission.deleteMany();
-  await prisma.teamMember.deleteMany();
-  await prisma.team.deleteMany();
-  await prisma.hackathonProblem.deleteMany();
-  await prisma.hackathonParticipant.deleteMany();
-  await prisma.problem.deleteMany();
-  await prisma.hackathon.deleteMany();
-  await prisma.user.deleteMany();
-
-  // 1. Create Users
+  // ── 1. Users (upsert on unique email) ─────────────────────────────────────
   const passwordHash = await bcrypt.hash("password123", 10);
 
-  const admin = await prisma.user.create({
-    data: {
+  const admin = await prisma.user.upsert({
+    where: { email: "admin@forgeeval.com" },
+    update: {},
+    create: {
       email: "admin@forgeeval.com",
       passwordHash,
       name: "Dr. Sarah Jenkins",
@@ -33,8 +31,10 @@ async function main() {
     },
   });
 
-  const organizer = await prisma.user.create({
-    data: {
+  const organizer = await prisma.user.upsert({
+    where: { email: "organizer@forgeeval.com" },
+    update: {},
+    create: {
       email: "organizer@forgeeval.com",
       passwordHash,
       name: "Morgan Stone",
@@ -43,8 +43,10 @@ async function main() {
     },
   });
 
-  const judge = await prisma.user.create({
-    data: {
+  const judge = await prisma.user.upsert({
+    where: { email: "judge@forgeeval.com" },
+    update: {},
+    create: {
       email: "judge@forgeeval.com",
       passwordHash,
       name: "Alex Vance",
@@ -53,8 +55,10 @@ async function main() {
     },
   });
 
-  const participant1 = await prisma.user.create({
-    data: {
+  const participant1 = await prisma.user.upsert({
+    where: { email: "dev@forgeeval.com" },
+    update: {},
+    create: {
       email: "dev@forgeeval.com",
       passwordHash,
       name: "Elena Rostova",
@@ -64,8 +68,10 @@ async function main() {
     },
   });
 
-  const participant2 = await prisma.user.create({
-    data: {
+  const participant2 = await prisma.user.upsert({
+    where: { email: "participant2@forgeeval.com" },
+    update: {},
+    create: {
       email: "participant2@forgeeval.com",
       passwordHash,
       name: "Marcus Chen",
@@ -75,36 +81,56 @@ async function main() {
     },
   });
 
-  console.log(" Created seed users (1 Admin, 1 Organizer, 1 Judge, 2 Participants)");
+  console.log("  ✓ Users upserted (1 Admin, 1 Organizer, 1 Judge, 2 Participants)");
 
-  // 2. Create Hackathons
-  const now = new Date();
-  const hackathon1 = await prisma.hackathon.create({
-    data: {
-      name: "Global AI Agents & Infrastructure Summit 2026",
-      theme: "Autonomous Agents & High-Throughput Distributed Compute",
-      description: "Build state-of-the-art verifiable intelligence architectures and low-latency streaming inference pipelines.",
-      rules: "Submissions must be original work with an active GitHub repository, automated tests, and clear README.",
-      eligibility: "Open to developers and engineering teams worldwide.",
-      startDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
-      endDate: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
-      registrationDeadline: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000),
-      submissionDeadline: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
-      status: "ACTIVE",
-    },
+  // ── 2. Hackathon (find-or-create — no @unique on name) ────────────────────
+  const HACKATHON_NAME = "Global AI Agents & Infrastructure Summit 2026";
+
+  let hackathon1 = await prisma.hackathon.findFirst({
+    where: { name: HACKATHON_NAME },
   });
 
-  // Join participants to hackathon
-  await prisma.hackathonParticipant.createMany({
-    data: [
-      { hackathonId: hackathon1.id, userId: participant1.id },
-      { hackathonId: hackathon1.id, userId: participant2.id },
-    ],
+  if (!hackathon1) {
+    const now = new Date();
+    hackathon1 = await prisma.hackathon.create({
+      data: {
+        name: HACKATHON_NAME,
+        theme: "Autonomous Agents & High-Throughput Distributed Compute",
+        description:
+          "Build state-of-the-art verifiable intelligence architectures and low-latency streaming inference pipelines.",
+        rules:
+          "Submissions must be original work with an active GitHub repository, automated tests, and clear README.",
+        eligibility: "Open to developers and engineering teams worldwide.",
+        startDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+        endDate: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000),
+        registrationDeadline: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000),
+        submissionDeadline: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+        status: "ACTIVE",
+      },
+    });
+    console.log(`  ✓ Hackathon created (id: ${hackathon1.id})`);
+  } else {
+    console.log(`  ✓ Hackathon already exists — skipping create (id: ${hackathon1.id})`);
+  }
+
+  // ── 3. HackathonParticipants (upsert on @@unique([hackathonId, userId])) ──
+  await prisma.hackathonParticipant.upsert({
+    where: { hackathonId_userId: { hackathonId: hackathon1.id, userId: participant1.id } },
+    update: {},
+    create: { hackathonId: hackathon1.id, userId: participant1.id },
   });
 
-  // 3. Create Problems
-  const problem1 = await prisma.problem.create({
-    data: {
+  await prisma.hackathonParticipant.upsert({
+    where: { hackathonId_userId: { hackathonId: hackathon1.id, userId: participant2.id } },
+    update: {},
+    create: { hackathonId: hackathon1.id, userId: participant2.id },
+  });
+
+  // ── 4. Problems (upsert on @unique code) ──────────────────────────────────
+  const problem1 = await prisma.problem.upsert({
+    where: { code: "PROB-01" },
+    update: {},
+    create: {
       code: "PROB-01",
       title: "Real-Time AI Fraud Detection Pipeline",
       description:
@@ -121,8 +147,10 @@ async function main() {
     },
   });
 
-  const problem2 = await prisma.problem.create({
-    data: {
+  const problem2 = await prisma.problem.upsert({
+    where: { code: "PROB-02" },
+    update: {},
+    create: {
       code: "PROB-02",
       title: "Decentralized Autonomous Evaluation Engine",
       description:
@@ -135,128 +163,173 @@ async function main() {
     },
   });
 
-  // Link problems to hackathon
-  await prisma.hackathonProblem.createMany({
-    data: [
-      { hackathonId: hackathon1.id, problemId: problem1.id },
-      { hackathonId: hackathon1.id, problemId: problem2.id },
-    ],
+  console.log("  ✓ Problems upserted (PROB-01, PROB-02)");
+
+  // ── 5. HackathonProblem links (upsert on @@unique([hackathonId, problemId])) ─
+  await prisma.hackathonProblem.upsert({
+    where: { hackathonId_problemId: { hackathonId: hackathon1.id, problemId: problem1.id } },
+    update: {},
+    create: { hackathonId: hackathon1.id, problemId: problem1.id },
   });
 
-  console.log(" Created hackathon and linked problem statements");
+  await prisma.hackathonProblem.upsert({
+    where: { hackathonId_problemId: { hackathonId: hackathon1.id, problemId: problem2.id } },
+    update: {},
+    create: { hackathonId: hackathon1.id, problemId: problem2.id },
+  });
 
-  // 4. Create Teams with Invite Codes
-  const team1 = await prisma.team.create({
-    data: {
-      name: "CyberPulse",
-      inviteCode: "FORGE-7X92",
-      hackathonId: hackathon1.id,
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+  console.log("  ✓ Problems linked to hackathon");
+
+  // ── 6. Teams (find-or-create on @unique inviteCode) ───────────────────────
+  let team1 = await prisma.team.findUnique({ where: { inviteCode: "FORGE-7X92" } });
+  if (!team1) {
+    team1 = await prisma.team.create({
+      data: {
+        name: "CyberPulse",
+        inviteCode: "FORGE-7X92",
+        hackathonId: hackathon1.id,
+        avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+      },
+    });
+  }
+
+  let team2 = await prisma.team.findUnique({ where: { inviteCode: "FORGE-8K31" } });
+  if (!team2) {
+    team2 = await prisma.team.create({
+      data: {
+        name: "NeuralSquad",
+        inviteCode: "FORGE-8K31",
+        hackathonId: hackathon1.id,
+        avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150",
+      },
+    });
+  }
+
+  // ── 7. TeamMembers (upsert on @@unique([teamId, userId])) ─────────────────
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team1.id, userId: participant1.id } },
+    update: {},
+    create: { teamId: team1.id, userId: participant1.id, role: "CAPTAIN" },
+  });
+
+  await prisma.teamMember.upsert({
+    where: { teamId_userId: { teamId: team2.id, userId: participant2.id } },
+    update: {},
+    create: { teamId: team2.id, userId: participant2.id, role: "CAPTAIN" },
+  });
+
+  console.log("  ✓ Teams upserted with members (FORGE-7X92, FORGE-8K31)");
+
+  // ── 8. Submissions (find-or-create on teamId + problemId) ─────────────────
+  let sub1 = await prisma.submission.findFirst({
+    where: { teamId: team1.id, problemId: problem1.id },
+  });
+  if (!sub1) {
+    sub1 = await prisma.submission.create({
+      data: {
+        teamId: team1.id,
+        problemId: problem1.id,
+        projectName: "AegisShield",
+        projectDescription:
+          "High-throughput real-time zero-trust anomaly detection with Rust and eBPF instrumentation.",
+        repositoryUrl: "https://github.com/forgeeval/aegisshield-core",
+        branch: "main",
+        demoUrl: "https://aegisshield.demo.forgeeval.dev",
+        docUrl: "https://docs.aegisshield.dev",
+        language: "TypeScript / Rust",
+        status: "ANALYZED",
+        overallScore: 94,
+        scoreCodeQuality: 92,
+        scoreSecurity: 91,
+        scoreTesting: 95,
+        scoreRequirement: 96,
+        scoreDocumentation: 90,
+        scoreUiUx: 94,
+        isReleased: true,
+      },
+    });
+    console.log(`  ✓ Submission 'AegisShield' created (id: ${sub1.id})`);
+  } else {
+    console.log(`  ✓ Submission 'AegisShield' already exists — skipping`);
+  }
+
+  let sub2 = await prisma.submission.findFirst({
+    where: { teamId: team2.id, problemId: problem1.id },
+  });
+  if (!sub2) {
+    sub2 = await prisma.submission.create({
+      data: {
+        teamId: team2.id,
+        problemId: problem1.id,
+        projectName: "SentinAI",
+        projectDescription: "Distributed streaming anomaly scanner with secure enclave execution.",
+        repositoryUrl: "https://github.com/forgeeval/sentin-ai",
+        branch: "main",
+        demoUrl: "https://sentinai.demo.forgeeval.dev",
+        language: "Python / Go",
+        status: "ANALYZED",
+        overallScore: 88,
+        scoreCodeQuality: 87,
+        scoreSecurity: 84,
+        scoreTesting: 91,
+        scoreRequirement: 90,
+        scoreDocumentation: 85,
+        scoreUiUx: 88,
+        isReleased: false,
+      },
+    });
+    console.log(`  ✓ Submission 'SentinAI' created (id: ${sub2.id})`);
+  } else {
+    console.log(`  ✓ Submission 'SentinAI' already exists — skipping`);
+  }
+
+  // ── 9. SecurityFinding (find-or-create on submissionId + title) ───────────
+  const existingFinding = await prisma.securityFinding.findFirst({
+    where: { submissionId: sub1.id, title: "Permissive CORS Wildcard configuration" },
+  });
+  if (!existingFinding) {
+    await prisma.securityFinding.create({
+      data: {
+        submissionId: sub1.id,
+        title: "Permissive CORS Wildcard configuration",
+        severity: "LOW",
+        category: "SECURITY",
+        filePath: "src/server.ts",
+        lineNumber: 42,
+        description: "Access-Control-Allow-Origin header is set to '*'.",
+        recommendation: "Restrict CORS origins strictly to client application domains.",
+        status: "OPEN",
+      },
+    });
+  }
+
+  // ── 10. RuntimeTest (find-or-create on submissionId + name) ───────────────
+  const existingTest = await prisma.runtimeTest.findFirst({
+    where: { submissionId: sub1.id, name: "Transaction Log Parsing Benchmark" },
+  });
+  if (!existingTest) {
+    await prisma.runtimeTest.create({
+      data: {
+        submissionId: sub1.id,
+        name: "Transaction Log Parsing Benchmark",
+        description: "Verifies processing latency under 50ms",
+        status: "PASSED",
+        duration: 38,
+      },
+    });
+  }
+
+  // ── 11. JudgeScore (upsert on @@unique([userId, submissionId, dimension])) ─
+  await prisma.judgeScore.upsert({
+    where: {
+      userId_submissionId_dimension: {
+        userId: judge.id,
+        submissionId: sub1.id,
+        dimension: "TECHNICAL",
+      },
     },
-  });
-
-  await prisma.teamMember.create({
-    data: {
-      teamId: team1.id,
-      userId: participant1.id,
-      role: "CAPTAIN",
-    },
-  });
-
-  const team2 = await prisma.team.create({
-    data: {
-      name: "NeuralSquad",
-      inviteCode: "FORGE-8K31",
-      hackathonId: hackathon1.id,
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150",
-    },
-  });
-
-  await prisma.teamMember.create({
-    data: {
-      teamId: team2.id,
-      userId: participant2.id,
-      role: "CAPTAIN",
-    },
-  });
-
-  console.log(" Created teams with invite codes (FORGE-7X92, FORGE-8K31)");
-
-  // 5. Create Submissions
-  const sub1 = await prisma.submission.create({
-    data: {
-      teamId: team1.id,
-      problemId: problem1.id,
-      projectName: "AegisShield",
-      projectDescription: "High-throughput real-time zero-trust anomaly detection with Rust and eBPF instrumentation.",
-      repositoryUrl: "https://github.com/forgeeval/aegisshield-core",
-      branch: "main",
-      demoUrl: "https://aegisshield.demo.forgeeval.dev",
-      docUrl: "https://docs.aegisshield.dev",
-      language: "TypeScript / Rust",
-      status: "ANALYZED",
-      overallScore: 94,
-      scoreCodeQuality: 92,
-      scoreSecurity: 91,
-      scoreTesting: 95,
-      scoreRequirement: 96,
-      scoreDocumentation: 90,
-      scoreUiUx: 94,
-      isReleased: true, // Released for participant view testing
-    },
-  });
-
-  const sub2 = await prisma.submission.create({
-    data: {
-      teamId: team2.id,
-      problemId: problem1.id,
-      projectName: "SentinAI",
-      projectDescription: "Distributed streaming anomaly scanner with secure enclave execution.",
-      repositoryUrl: "https://github.com/forgeeval/sentin-ai",
-      branch: "main",
-      demoUrl: "https://sentinai.demo.forgeeval.dev",
-      language: "Python / Go",
-      status: "ANALYZED",
-      overallScore: 88,
-      scoreCodeQuality: 87,
-      scoreSecurity: 84,
-      scoreTesting: 91,
-      scoreRequirement: 90,
-      scoreDocumentation: 85,
-      scoreUiUx: 88,
-      isReleased: false, // Unreleased to test unreleased state
-    },
-  });
-
-  // 6. Security Findings
-  await prisma.securityFinding.create({
-    data: {
-      submissionId: sub1.id,
-      title: "Permissive CORS Wildcard configuration",
-      severity: "LOW",
-      category: "SECURITY",
-      filePath: "src/server.ts",
-      lineNumber: 42,
-      description: "Access-Control-Allow-Origin header is set to '*'.",
-      recommendation: "Restrict CORS origins strictly to client application domains.",
-      status: "OPEN",
-    },
-  });
-
-  // 7. Runtime Tests
-  await prisma.runtimeTest.create({
-    data: {
-      submissionId: sub1.id,
-      name: "Transaction Log Parsing Benchmark",
-      description: "Verifies processing latency under 50ms",
-      status: "PASSED",
-      duration: 38,
-    },
-  });
-
-  // 8. Judge Score
-  await prisma.judgeScore.create({
-    data: {
+    update: {},
+    create: {
       submissionId: sub1.id,
       userId: judge.id,
       dimension: "TECHNICAL",
@@ -265,12 +338,20 @@ async function main() {
     },
   });
 
-  console.log(" Database V2 seeding completed successfully!");
+  console.log("  ✓ Security finding, runtime test, and judge score upserted");
+  console.log("");
+  console.log("🎉  Seed complete — no existing data was deleted or overwritten.");
+  console.log("    Demo credentials (password: password123):");
+  console.log("      admin@forgeeval.com       → ADMIN");
+  console.log("      organizer@forgeeval.com   → ORGANIZER");
+  console.log("      judge@forgeeval.com       → JUDGE");
+  console.log("      dev@forgeeval.com         → PARTICIPANT (Elena Rostova)");
+  console.log("      participant2@forgeeval.com → PARTICIPANT (Marcus Chen)");
 }
 
 main()
-  .catch((e) => {
-    console.error(" Error during seeding:", e);
+  .catch((err) => {
+    console.error("❌  Seed failed:", err);
     process.exit(1);
   })
   .finally(async () => {

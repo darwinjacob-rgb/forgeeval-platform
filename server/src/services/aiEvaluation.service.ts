@@ -2,16 +2,11 @@
 // ForgeEval — AI Evaluation & Synthesis Service
 // Phase 3 — Part 7
 //
-// Analyzes complete Phase 1 & Phase 2 evidence for a submission:
-// Problem requirements, Requirement ↔ Code Mapping, Repository structure,
-// Security Findings, Runtime Tests, and Documentation.
-//
-// Strictly evaluates based ONLY on available evidence.
-// Classifies claims into VERIFIED / CLAIMED / UNKNOWN.
-// Supports deterministic fallback when no AI API key is configured.
+// Analyzes complete Phase 1 & Phase 2 evidence for a submission.
 // ====================================================
 
 import prisma from "../config/database.ts";
+import { ReviewerType } from "@prisma/client";
 
 export interface EvidenceRef {
   claim: string;
@@ -43,6 +38,57 @@ export interface AIStructuredEvaluation {
   };
 }
 
+export class MultiAgentService {
+  /**
+   * Generate reviewer results for a submission based on the structured AI evaluation.
+   */
+  public static async runReviewers(
+    submissionId: string,
+    evaluation: AIStructuredEvaluation
+  ): Promise<any[]> {
+    const reviewerTypes: ReviewerType[] = [
+      "FUNCTIONAL",
+      "TECHNICAL",
+      "SECURITY",
+      "UI_UX",
+    ];
+
+    const results = await Promise.all(
+      reviewerTypes.map(async (type) => {
+        const assessmentMap: Record<string, DimensionAssessment> = {
+          FUNCTIONAL: evaluation.assessments.functional,
+          TECHNICAL: evaluation.assessments.technical,
+          SECURITY: evaluation.assessments.security,
+          UI_UX: evaluation.assessments.uiUx,
+        };
+
+        const assessment = assessmentMap[type];
+        const evidenceRefs = evaluation.evidenceReferences.filter((e) =>
+          e.claim.toLowerCase().includes(type.toLowerCase())
+        );
+
+        return prisma.reviewerResult.create({
+          data: {
+            analysisId: submissionId,
+            reviewer: type,
+            findings: assessment ? JSON.stringify(assessment) : "{}",
+            evidence: JSON.stringify(evidenceRefs),
+          },
+        });
+      })
+    );
+
+    return results;
+  }
+
+  /** Retrieve stored reviewer results for a submission */
+  public static async getResults(submissionId: string) {
+    return prisma.reviewerResult.findMany({
+      where: { analysisId: submissionId },
+    });
+  }
+}
+
 export class AIEvaluationService {
   /**
    * Main entrypoint: Synthesizes complete evaluation from Phase 1 & Phase 2 evidence.
@@ -51,36 +97,47 @@ export class AIEvaluationService {
     submissionId: string,
     problemId: string
   ): Promise<AIStructuredEvaluation> {
-    console.log(`[AIEvaluationService] Starting Phase 3 evaluation for submission ${submissionId}`);
+    console.log(
+      `[AIEvaluationService] Starting Phase 3 evaluation for submission ${submissionId}`
+    );
 
     // 1. Fetch complete submission context & Phase 1/2 evidence
-    const [submission, problem, reqResults, findings, runtimeTests] = await Promise.all([
-      prisma.submission.findUnique({
-        where: { id: submissionId },
-        include: {
-          team: { select: { name: true } },
-          frameworks: { select: { name: true } },
-          dependencies: { select: { name: true, version: true, auditStatus: true } },
-        },
-      }),
-      prisma.problem.findUnique({
-        where: { id: problemId },
-        include: { requirements: true },
-      }),
-      prisma.requirementResult.findMany({
-        where: { submissionId },
-        include: { requirement: true },
-      }),
-      prisma.securityFinding.findMany({
-        where: { submissionId },
-      }),
-      prisma.runtimeTest.findMany({
-        where: { submissionId },
-      }),
-    ]);
+    const [submission, problem, reqResults, findings, runtimeTests] =
+      await Promise.all([
+        prisma.submission.findUnique({
+          where: { id: submissionId },
+          include: {
+            team: { select: { name: true } },
+            frameworks: { select: { name: true } },
+            dependencies: {
+              select: {
+                name: true,
+                version: true,
+                auditStatus: true,
+              },
+            },
+          },
+        }),
+        prisma.problem.findUnique({
+          where: { id: problemId },
+          include: { requirements: true },
+        }),
+        prisma.requirementResult.findMany({
+          where: { submissionId },
+          include: { requirement: true },
+        }),
+        prisma.securityFinding.findMany({
+          where: { submissionId },
+        }),
+        prisma.runtimeTest.findMany({
+          where: { submissionId },
+        }),
+      ]);
 
     if (!submission || !problem) {
-      throw new Error(`Submission ${submissionId} or Problem ${problemId} not found`);
+      throw new Error(
+        `Submission ${submissionId} or Problem ${problemId} not found`
+      );
     }
 
     // Upsert initial AIAnalysis state
@@ -98,37 +155,43 @@ export class AIEvaluationService {
       },
     });
 
-    // 2. Synthesize Evidence References (VERIFIED / CLAIMED / UNKNOWN)
+    // 2. Synthesize Evidence References
     const evidenceReferences: EvidenceRef[] = [];
 
-    // Classify Requirement Mappings
     for (const res of reqResults) {
       if (res.status === "SATISFIED") {
         evidenceReferences.push({
           claim: `Requirement '${res.requirement.title}' (${res.requirement.code})`,
           status: "VERIFIED",
           sourceFile: res.filePath || undefined,
-          details: `Direct code evidence found in ${res.filePath || "repository"}. Confidence: ${Math.round((res.confidence ?? 0) * 100)}%`,
+          details: `Direct code evidence found in ${res.filePath || "repository"
+            }. Confidence: ${Math.round((res.confidence ?? 0) * 100)}%`,
         });
       } else if (res.status === "PARTIAL") {
         evidenceReferences.push({
           claim: `Requirement '${res.requirement.title}' (${res.requirement.code})`,
           status: "CLAIMED",
           sourceFile: res.filePath || undefined,
-          details: `Partial implementation detected. Evidence found but criteria incomplete.`,
+          details:
+            "Partial implementation detected. Evidence found but criteria incomplete.",
         });
       } else {
         evidenceReferences.push({
           claim: `Requirement '${res.requirement.title}' (${res.requirement.code})`,
           status: "UNKNOWN",
-          details: `No implementation evidence matched in repository codebase.`,
+          details:
+            "No implementation evidence matched in repository codebase.",
         });
       }
     }
 
     // Classify Security Findings
-    const criticalFindings = findings.filter((f) => f.severity === "CRITICAL" && !f.falsePositive);
-    const highFindings = findings.filter((f) => f.severity === "HIGH" && !f.falsePositive);
+    const criticalFindings = findings.filter(
+      (f) => f.severity === "CRITICAL" && !f.falsePositive
+    );
+    const highFindings = findings.filter(
+      (f) => f.severity === "HIGH" && !f.falsePositive
+    );
     const totalFindings = findings.filter((f) => !f.falsePositive);
 
     if (totalFindings.length > 0) {
@@ -137,19 +200,24 @@ export class AIEvaluationService {
           claim: `Security Issue: ${f.title}`,
           status: "VERIFIED",
           sourceFile: f.filePath || undefined,
-          details: `[${f.severity}] ${f.description} at ${f.filePath || "codebase"}:${f.lineNumber || 1}`,
+          details: `[${f.severity}] ${f.description} at ${f.filePath || "codebase"
+            }:${f.lineNumber || 1}`,
         });
       });
     } else {
       evidenceReferences.push({
-        claim: `Static SAST Security Scan`,
+        claim: "Static SAST Security Scan",
         status: "VERIFIED",
-        details: `Zero high/critical SAST vulnerabilities detected across scanned source files.`,
+        details:
+          "Zero high/critical SAST vulnerabilities detected across scanned source files.",
       });
     }
 
-    // Classify Documentation Evidence
-    const hasReadme = !!(submission.readmeContent && submission.readmeContent.length > 100);
+    // Documentation Evidence
+    const hasReadme = !!(
+      submission.readmeContent && submission.readmeContent.length > 100
+    );
+
     evidenceReferences.push({
       claim: "Documentation & Readme",
       status: hasReadme ? "VERIFIED" : "UNKNOWN",
@@ -158,7 +226,7 @@ export class AIEvaluationService {
         : "No comprehensive README documentation found in root repository.",
     });
 
-    // Classify Demo & Live URL
+    // Demo & Live URL
     if (submission.demoUrl) {
       evidenceReferences.push({
         claim: "Live Demo URL",
@@ -167,70 +235,133 @@ export class AIEvaluationService {
       });
     }
 
-    // 3. Compute Evidence-Based Dimension Assessments & Scores
+    // 3. Compute Dimension Assessments & Scores
     const totalReqs = problem.requirements.length || 1;
-    const satisfiedReqs = reqResults.filter((r) => r.status === "SATISFIED").length;
-    const partialReqs = reqResults.filter((r) => r.status === "PARTIAL").length;
+    const satisfiedReqs = reqResults.filter(
+      (r) => r.status === "SATISFIED"
+    ).length;
+    const partialReqs = reqResults.filter(
+      (r) => r.status === "PARTIAL"
+    ).length;
 
     // Functional
-    const functionalScore = Math.min(100, Math.round(((satisfiedReqs * 1.0 + partialReqs * 0.5) / totalReqs) * 100));
+    const functionalScore = Math.min(
+      100,
+      Math.round(
+        ((satisfiedReqs * 1 + partialReqs * 0.5) / totalReqs) * 100
+      )
+    );
+
     const functionalAssessment: DimensionAssessment = {
       score: functionalScore,
       explanation: `Verified ${satisfiedReqs} of ${totalReqs} requirements fully satisfied, with ${partialReqs} partially satisfied.`,
-      evidence: reqResults.filter((r) => r.status === "SATISFIED").map((r) => `Satisfied: ${r.requirement.title}`),
+      evidence: reqResults
+        .filter((r) => r.status === "SATISFIED")
+        .map((r) => `Satisfied: ${r.requirement.title}`),
     };
 
     // Technical
     const loc = submission.linesOfCode || 500;
     const frameworksCount = submission.frameworks.length || 1;
-    const technicalBase = Math.min(100, Math.round(70 + Math.min(loc / 100, 15) + frameworksCount * 5));
+    const technicalBase = Math.min(
+      100,
+      Math.round(70 + Math.min(loc / 100, 15) + frameworksCount * 5)
+    );
+
     const technicalAssessment: DimensionAssessment = {
       score: technicalBase,
       explanation: `Repository codebase contains ${loc} lines of code across ${frameworksCount} primary framework(s) (${submission.language || "TypeScript"}).`,
       evidence: [
         `Primary Language: ${submission.language || "TypeScript"}`,
         `Lines of Code: ~${loc}`,
-        `Frameworks: ${submission.frameworks.map((f) => f.name).join(", ") || "Standard Stack"}`,
+        `Frameworks: ${submission.frameworks.map((f) => f.name).join(", ") ||
+        "Standard Stack"
+        }`,
       ],
     };
 
     // Security
-    const secDeduction = criticalFindings.length * 25 + highFindings.length * 15 + (totalFindings.length - criticalFindings.length - highFindings.length) * 3;
+    const secDeduction =
+      criticalFindings.length * 25 +
+      highFindings.length * 15 +
+      (totalFindings.length -
+        criticalFindings.length -
+        highFindings.length) *
+      3;
+
     const securityScore = Math.max(0, 100 - secDeduction);
+
     const securityAssessment: DimensionAssessment = {
       score: securityScore,
-      explanation: totalFindings.length === 0
-        ? "Static security audit passed clean with zero detected high/critical SAST issues."
-        : `Detected ${totalFindings.length} security finding(s) (${criticalFindings.length} critical, ${highFindings.length} high).`,
-      evidence: totalFindings.map((f) => `[${f.severity}] ${f.title} (${f.filePath || "src"})`),
+      explanation:
+        totalFindings.length === 0
+          ? "Static security audit passed clean with zero detected high/critical SAST issues."
+          : `Detected ${totalFindings.length} security finding(s) (${criticalFindings.length} critical, ${highFindings.length} high).`,
+      evidence: totalFindings.map(
+        (f) => `[${f.severity}] ${f.title} (${f.filePath || "src"})`
+      ),
     };
 
     // Code Quality
-    const codeQualityScore = Math.min(100, Math.round(technicalBase * 0.5 + (100 - totalFindings.length * 5) * 0.5));
+    const codeQualityScore = Math.min(
+      100,
+      Math.round(
+        technicalBase * 0.5 + (100 - totalFindings.length * 5) * 0.5
+      )
+    );
+
     const codeQualityAssessment: DimensionAssessment = {
       score: codeQualityScore,
-      explanation: `Code structure follows modular layout with type safety and standard error handling.`,
-      evidence: [`Structure: ${Array.isArray(submission.projectStructure) ? submission.projectStructure.length : 0} root items`],
+      explanation:
+        "Code structure follows modular layout with type safety and standard error handling.",
+      evidence: [
+        `Structure: ${Array.isArray(submission.projectStructure)
+          ? submission.projectStructure.length
+          : 0
+        } root items`,
+      ],
     };
 
     // UI / UX
-    const uiReqs = problem.requirements.filter((r) => r.category === "UI_UX");
-    const satisfiedUi = reqResults.filter((r) => r.requirement.category === "UI_UX" && r.status === "SATISFIED").length;
-    const uiUxScore = uiReqs.length > 0
-      ? Math.round((satisfiedUi / uiReqs.length) * 100)
-      : (submission.demoUrl ? 90 : 75);
+    const uiReqs = problem.requirements.filter(
+      (r) => r.category === "UI_UX"
+    );
+    const satisfiedUi = reqResults.filter(
+      (r) =>
+        r.requirement.category === "UI_UX" && r.status === "SATISFIED"
+    ).length;
+
+    const uiUxScore =
+      uiReqs.length > 0
+        ? Math.round((satisfiedUi / uiReqs.length) * 100)
+        : submission.demoUrl
+          ? 90
+          : 75;
+
     const uiUxAssessment: DimensionAssessment = {
       score: uiUxScore,
-      explanation: uiReqs.length > 0
-        ? `Satisfied ${satisfiedUi} of ${uiReqs.length} specific UI/UX requirements.`
-        : `Frontend application includes ${submission.demoUrl ? "live demo URL and responsive layout" : "standard user interface components"}.`,
-      evidence: submission.demoUrl ? [`Live Demo: ${submission.demoUrl}`] : ["Standard UI layout"],
+      explanation:
+        uiReqs.length > 0
+          ? `Satisfied ${satisfiedUi} of ${uiReqs.length} specific UI/UX requirements.`
+          : `Frontend application includes ${submission.demoUrl
+            ? "live demo URL and responsive layout"
+            : "standard user interface components"
+          }.`,
+      evidence: submission.demoUrl
+        ? [`Live Demo: ${submission.demoUrl}`]
+        : ["Standard UI layout"],
     };
 
     // Documentation
     const docScore = hasReadme
-      ? Math.min(100, 70 + Math.round((submission.readmeContent!.length / 1000) * 10) + (submission.docUrl ? 15 : 0))
+      ? Math.min(
+        100,
+        70 +
+        Math.round((submission.readmeContent!.length / 1000) * 10) +
+        (submission.docUrl ? 15 : 0)
+      )
       : 30;
+
     const documentationAssessment: DimensionAssessment = {
       score: docScore,
       explanation: hasReadme
@@ -240,59 +371,89 @@ export class AIEvaluationService {
     };
 
     // Innovation
-    const innovationReqs = problem.requirements.filter((r) => r.category === "INNOVATION");
-    const satisfiedInno = reqResults.filter((r) => r.requirement.category === "INNOVATION" && r.status === "SATISFIED").length;
-    const innovationScore = innovationReqs.length > 0
-      ? Math.round((satisfiedInno / innovationReqs.length) * 100)
-      : Math.min(100, 70 + (submission.frameworks.length > 2 ? 15 : 5));
+    const innovationReqs = problem.requirements.filter(
+      (r) => r.category === "INNOVATION"
+    );
+    const satisfiedInno = reqResults.filter(
+      (r) =>
+        r.requirement.category === "INNOVATION" &&
+        r.status === "SATISFIED"
+    ).length;
+
+    const innovationScore =
+      innovationReqs.length > 0
+        ? Math.round((satisfiedInno / innovationReqs.length) * 100)
+        : Math.min(100, 70 + (submission.frameworks.length > 2 ? 15 : 5));
+
     const innovationAssessment: DimensionAssessment = {
       score: innovationScore,
-      explanation: `Evaluated technical innovation and architectural problem-solving capabilities based on repository evidence.`,
-      evidence: [`Detected Frameworks: ${submission.frameworks.map((f) => f.name).join(", ") || "Standard"}`],
+      explanation:
+        "Evaluated technical innovation and architectural problem-solving capabilities based on repository evidence.",
+      evidence: [
+        `Detected Frameworks: ${submission.frameworks.map((f) => f.name).join(", ") || "Standard"
+        }`,
+      ],
     };
 
-    // 4. Strengths & Weaknesses Extraction
+    // 4. Strengths & Weaknesses
     const strengths: string[] = [];
     const weaknesses: string[] = [];
 
     if (satisfiedReqs > 0) {
-      strengths.push(`Satisfied ${satisfiedReqs} core problem requirement(s) with verified code AST evidence.`);
+      strengths.push(
+        `Satisfied ${satisfiedReqs} core problem requirement(s) with verified code AST evidence.`
+      );
     }
+
     if (totalFindings.length === 0) {
-      strengths.push("Zero SAST security vulnerabilities or hardcoded secret leaks detected.");
+      strengths.push(
+        "Zero SAST security vulnerabilities or hardcoded secret leaks detected."
+      );
     } else {
-      weaknesses.push(`Found ${totalFindings.length} security finding(s) that require remediation before production deployment.`);
+      weaknesses.push(
+        `Found ${totalFindings.length} security finding(s) that require remediation before production deployment.`
+      );
     }
 
     if (hasReadme) {
-      strengths.push("Clear repository setup instructions and architecture documentation provided.");
+      strengths.push(
+        "Clear repository setup instructions and architecture documentation provided."
+      );
     } else {
-      weaknesses.push("Missing comprehensive README documentation for deployment and build instructions.");
+      weaknesses.push(
+        "Missing comprehensive README documentation for deployment and build instructions."
+      );
     }
 
     if (satisfiedReqs < totalReqs) {
       const missingCount = totalReqs - satisfiedReqs - partialReqs;
       if (missingCount > 0) {
-        weaknesses.push(`${missingCount} requirement(s) have missing or incomplete code implementations.`);
+        weaknesses.push(
+          `${missingCount} requirement(s) have missing or incomplete code implementations.`
+        );
       }
     }
 
     if (strengths.length === 0) {
-      strengths.push("Repository submitted successfully and parsed into ForgeEval analysis pipeline.");
+      strengths.push(
+        "Repository submitted successfully and parsed into ForgeEval analysis pipeline."
+      );
     }
 
-    // 5. Overall Synthesis Summary & Overall Score Calculation
+    // 5. Overall Score
     const overallScore = Math.round(
       functionalScore * 0.25 +
-      technicalBase * 0.20 +
+      technicalBase * 0.2 +
       securityScore * 0.15 +
-      codeQualityScore * 0.10 +
-      uiUxScore * 0.10 +
-      docScore * 0.10 +
-      innovationScore * 0.10
+      codeQualityScore * 0.1 +
+      uiUxScore * 0.1 +
+      docScore * 0.1 +
+      innovationScore * 0.1
     );
 
-    const summary = `ForgeEval AI Synthesis for '${submission.projectName || submission.team.name}': Achieved an evidence-verified score of ${overallScore}/100. Core requirement coverage stands at ${functionalScore}%, with security compliance at ${securityScore}%. Verified ${evidenceReferences.filter((e) => e.status === "VERIFIED").length} claim(s) with direct AST and repository evidence.`;
+    const summary = `ForgeEval AI Synthesis for '${submission.projectName || submission.team.name
+      }': Achieved an evidence-verified score of ${overallScore}/100. Core requirement coverage stands at ${functionalScore}%, with security compliance at ${securityScore}%. Verified ${evidenceReferences.filter((e) => e.status === "VERIFIED").length
+      } claim(s) with direct AST and repository evidence.`;
 
     const structuredEval: AIStructuredEvaluation = {
       summary,
@@ -311,7 +472,7 @@ export class AIEvaluationService {
       },
     };
 
-    // 6. Persist to Database (AIAnalysis table)
+    // 6. Persist evaluation
     await prisma.aIAnalysis.upsert({
       where: { id: submissionId },
       create: {
@@ -339,7 +500,10 @@ export class AIEvaluationService {
       },
     });
 
-    console.log(`[AIEvaluationService] AI Evaluation completed for ${submissionId} with overall score ${overallScore}`);
+    console.log(
+      `[AIEvaluationService] AI Evaluation completed for ${submissionId} with overall score ${overallScore}`
+    );
+
     return structuredEval;
   }
 }

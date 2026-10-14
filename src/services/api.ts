@@ -2,7 +2,7 @@ import { Problem, Submission, Finding, RequirementItem, JudgeEvaluation } from '
 import { INITIAL_PROBLEMS, INITIAL_SUBMISSIONS, INITIAL_REQUIREMENTS, INITIAL_FINDINGS } from '../mockData';
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+  import.meta.env.VITE_API_URL || '/api/v1';
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const defaultHeaders: Record<string, string> = {

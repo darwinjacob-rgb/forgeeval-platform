@@ -177,6 +177,7 @@ model User {
   judgeScores      JudgeScore[]
   activityLogs     ActivityLog[]
   hackathonsJoined HackathonParticipant[]
+  feedbacks        Feedback[]
 
   @@index([email])
   @@index([role])
@@ -206,9 +207,9 @@ model Hackathon {
 }
 
 model HackathonParticipant {
-  id          String   @id @default(cuid())
-  hackathonId String
-  userId      String
+  id           String   @id @default(cuid())
+  hackathonId  String
+  userId       String
   registeredAt DateTime @default(now())
 
   hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
@@ -220,24 +221,24 @@ model HackathonParticipant {
 }
 
 model HackathonProblem {
-  id          String    @id @default(cuid())
+  id          String @id @default(cuid())
   hackathonId String
   problemId   String
 
-  hackathon   Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
-  problem     Problem   @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  hackathon Hackathon @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  problem   Problem   @relation(fields: [problemId], references: [id], onDelete: Cascade)
 
   @@unique([hackathonId, problemId])
 }
 
 model Problem {
-  id                      String            @id @default(cuid())
-  code                    String            @unique
+  id                      String                @id @default(cuid())
+  code                    String                @unique
   title                   String
   description             String
   difficulty              ProblemDifficulty
   category                String
-  status                  ProblemStatus     @default(ACTIVE)
+  status                  ProblemStatus         @default(ACTIVE)
   deadline                DateTime?
   inputRequirements       String[]
   outputRequirements      String[]
@@ -250,12 +251,12 @@ model Problem {
   rawStatement            String?
   analysisStatus          ProblemAnalysisStatus @default(UNANALYZED)
   createdBy               String?
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
 
-  submissions     Submission[]
-  requirements    Requirement[]
-  hackathons      HackathonProblem[]
+  submissions  Submission[]
+  requirements Requirement[]
+  hackathons   HackathonProblem[]
 
   @@index([category])
   @@index([difficulty])
@@ -285,8 +286,8 @@ model TeamMember {
   userId String
   role   String @default("MEMBER")
 
-  team   Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
 }
@@ -330,15 +331,15 @@ model Submission {
   executionTime        String?
 
   // Criteria scores (denormalized for quick access)
-  scoreRequirement    Float?
-  scoreCodeQuality    Float?
-  scoreSecurity       Float?
-  scoreTesting        Float?
-  scoreDocumentation  Float?
-  scoreUiUx           Float?
+  scoreRequirement   Float?
+  scoreCodeQuality   Float?
+  scoreSecurity      Float?
+  scoreTesting       Float?
+  scoreDocumentation Float?
+  scoreUiUx          Float?
 
-  team               Team               @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  problem            Problem            @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  team               Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  problem            Problem                @relation(fields: [problemId], references: [id], onDelete: Cascade)
   files              SubmissionFile[]
   requirementResults RequirementResult[]
   aiAnalyses         AIAnalysis[]
@@ -351,6 +352,9 @@ model Submission {
   projectStructure   Json?
   runtimeLogs        Json?
   evaluationPipeline EvaluationPipeline?
+  similarityResultsA SimilarityResult[]     @relation("SimilarityA")
+  similarityResultsB SimilarityResult[]     @relation("SimilarityB")
+  feedback           Feedback?
 
   @@index([teamId])
   @@index([problemId])
@@ -360,7 +364,7 @@ model Submission {
 }
 
 model SubmissionFile {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   submissionId String
   path         String
   filename     String
@@ -397,18 +401,18 @@ model SubmissionDependency {
 }
 
 model Requirement {
-  id                String              @id @default(cuid())
-  problemId         String
-  code              String
-  title             String
-  description       String?
-  category          RequirementCategory
-  priority          RequirementPriority @default(MEDIUM)
-  weight            Float               @default(1.0)
-  keywords          String[]
+  id                 String              @id @default(cuid())
+  problemId          String
+  code               String
+  title              String
+  description        String?
+  category           RequirementCategory
+  priority           RequirementPriority @default(MEDIUM)
+  weight             Float               @default(1.0)
+  keywords           String[]
   acceptanceCriteria String[]
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   problem Problem             @relation(fields: [problemId], references: [id], onDelete: Cascade)
   results RequirementResult[]
@@ -455,6 +459,7 @@ model AIAnalysis {
 
   submission      Submission         @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   dimensionScores AIDimensionScore[]
+  reviewerResults ReviewerResult[]
 
   @@index([submissionId])
   @@index([status])
@@ -474,6 +479,59 @@ model AIDimensionScore {
   @@index([analysisId])
 }
 
+// ── New Enums & Models for extended features ────────────────────────────────────────
+
+enum ReviewerType {
+  FUNCTIONAL
+  TECHNICAL
+  SECURITY
+  UI_UX
+}
+
+model ReviewerResult {
+  id         String       @id @default(cuid())
+  analysisId String
+  reviewer   ReviewerType
+  findings   Json // structured findings per reviewer
+  evidence   Json // evidence references used by reviewer
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  analysis AIAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([analysisId])
+}
+
+model SimilarityResult {
+  id                String   @id @default(cuid())
+  hackathonId       String
+  submissionAId     String
+  submissionBId     String
+  similarityScore   Float
+  matchingFragments Json? // list of {filePath, snippetA, snippetB}
+  createdAt         DateTime @default(now())
+
+  // relations (optional, for query convenience)
+  submissionA Submission @relation("SimilarityA", fields: [submissionAId], references: [id])
+  submissionB Submission @relation("SimilarityB", fields: [submissionBId], references: [id])
+
+  @@unique([hackathonId, submissionAId, submissionBId])
+  @@index([hackathonId])
+}
+
+model Feedback {
+  id           String   @id @default(cuid())
+  submissionId String   @unique
+  content      String // generated feedback markdown/text
+  generatedAt  DateTime @default(now())
+  createdById  String? // judge or system user
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  creator    User?      @relation(fields: [createdById], references: [id])
+
+  @@index([submissionId])
+}
+
 model SecurityFinding {
   id             String          @id @default(cuid())
   submissionId   String
@@ -484,7 +542,7 @@ model SecurityFinding {
   filePath       String?
   lineNumber     Int?
   columnNumber   Int?
-  codeSnippet    String?         // masked, never raw secrets
+  codeSnippet    String? // masked, never raw secrets
   evidence       String?
   recommendation String?
   cwe            String?
@@ -526,21 +584,21 @@ model RuntimeTest {
 }
 
 model EvaluationPipeline {
-  id               String                   @id @default(cuid())
-  submissionId     String                   @unique
-  mappingStatus    PipelineComponentStatus  @default(PENDING)
-  securityStatus   PipelineComponentStatus  @default(PENDING)
-  runtimeStatus    PipelineComponentStatus  @default(PENDING)
-  mappingError     String?
-  securityError    String?
-  runtimeError     String?
-  startedAt        DateTime?
+  id                  String                  @id @default(cuid())
+  submissionId        String                  @unique
+  mappingStatus       PipelineComponentStatus @default(PENDING)
+  securityStatus      PipelineComponentStatus @default(PENDING)
+  runtimeStatus       PipelineComponentStatus @default(PENDING)
+  mappingError        String?
+  securityError       String?
+  runtimeError        String?
+  startedAt           DateTime?
   mappingCompletedAt  DateTime?
   securityCompletedAt DateTime?
   runtimeCompletedAt  DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
+  completedAt         DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
 
   submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
@@ -552,8 +610,8 @@ model Judge {
   userId      String
   hackathonId String
 
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  hackathon Hackathon   @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hackathon Hackathon    @relation(fields: [hackathonId], references: [id], onDelete: Cascade)
   scores    JudgeScore[]
 
   @@unique([userId, hackathonId])
